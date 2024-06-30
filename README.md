@@ -1,16 +1,10 @@
-# Multi-Task Learning with ResNet-18 for Optical Aerial Image Segmentation and Classification
+# Multi-Task Learning with ResNet-18 for Knee Osteoarthritis MRI Segmentation and Classification
 
-This repository contains the implementation of a multi-task learning model using ResNet-18 as a shared encoder. The model is designed for Optical Aerial (OA) image segmentation and classification.
+This repository contains the implementation of a multi-task learning model using ResNet-18 as a shared encoder. The model is designed for Knee Osteoarthritis MRI segmentation and classification.
 
-## Table of Contents
+## Table of Contents1
 - [Introduction](#introduction)
 - [Model Architecture](#model-architecture)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Dataset](#dataset)
-- [Results](#results)
-- [Contributing](#contributing)
-- [License](#license)
 
 ## Introduction
 This project implements a multi-task learning model leveraging the ResNet-18 architecture as a shared encoder. The model is capable of performing both segmentation and classification tasks on Optical Aerial images.
