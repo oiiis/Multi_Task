@@ -7,7 +7,7 @@ This repository contains the implementation of a multi-task learning model using
 - [Model Architecture](#model-architecture)
 
 ## Introduction
-This project implements a multi-task learning model leveraging the ResNet-18 architecture as a shared encoder. The model is capable of performing both segmentation and classification tasks on Optical Aerial images.
+This project implements a multi-task learning model leveraging the ResNet-18 architecture as a shared encoder. The model is capable of performing both segmentation and classification tasks on Knee Osteoarthritis.
 
 ## Model Architecture
 The model architecture includes:
