@@ -23,7 +23,7 @@ The architecture ensures that the encoder learns common features useful for both
 This project is organized into the following structure:
 
 - **data/**: Directory containing data files.
-  - **mhd_files/**: Subdirectory containing MHD (MetaImage) files.
+  - **mhd_files/**: Containing MRI files.
 - **dataset.py**: Script for handling and preprocessing the dataset.
 - **multi_task_model.py**: Script defining the multi-task learning model.
 - **segmentation_branch.py**: Script for the segmentation branch of the model.
