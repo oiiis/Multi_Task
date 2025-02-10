@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import time
 
 def check_mhd_files(image_dir):
-    """检查目录中的所有 .mhd 文件，并打印它们的基本信息。"""
+    """检查目录中的所有 .mhd 文件，并打印它们的基本信息和元数据。"""
     mhd_files = [f for f in os.listdir(image_dir) if f.endswith('.mhd')]
     
     for mhd_file in mhd_files:
@@ -22,7 +22,19 @@ def check_mhd_files(image_dir):
         else:
             print('Segmentation label does NOT exist.')
         
+        # 提取并打印元数据
+        print('Extracting metadata...')
+        meta_keys = image.GetMetaDataKeys()  # 获取元数据键
+        for key in meta_keys:
+            meta_value = image.GetMetaData(key)  # 获取每个键对应的值
+            print(f'{key}: {meta_value}')
+            
+            # 检查是否有可能的分类标记
+            if 'class' in key.lower() or 'label' in key.lower() or 'diagnosis' in key.lower():
+                print(f'Possible classification label found: {meta_value}')
+        
         print('-' * 50)
+
 
 def get_unique_labels(image_dir, num_files=3):
     """获取目录中每个 .mhd 文件的唯一标签，并打印它们。"""

@@ -1,0 +1,13 @@
+ObjectType = Image
+NDims = 3
+BinaryData = True
+BinaryDataByteOrderMSB = False
+CompressedData = False
+TransformMatrix = 1 0 0 0 1 0 0 0 1
+Offset = -118.568 -74.7949 -65.7613
+CenterOfRotation = 0 0 0
+AnatomicalOrientation = RPI
+ElementSpacing = 0.700001 0.364584 0.364583
+DimSize = 160 384 384
+ElementType = MET_UCHAR
+ElementDataFile = 9118430.segmentation_masks.raw
