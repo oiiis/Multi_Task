@@ -1,0 +1,2 @@
+visualize the logs using:
+tensorboard --logdir=runs
