@@ -5,10 +5,9 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from torch.utils.tensorboard import SummaryWriter
 import itertools
-
+import pandas as pd
 import sys
 import os
-
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))  # Add parent directory to sys.path
 
@@ -35,34 +34,36 @@ xray_paths = [
 # Load dataset
 batch_size = 2
 dataset = MedicalImageDatasetWithoutLabel(mri_paths, xray_paths)
-
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 # Experimental configurations
 fusion_strategies = ["early", "late"]
-pooling_types = ["traditional", "adaptive", "equal"]
 fusion_weights = [0.3, 0.5, 0.7]  # Alpha values for weighted fusion
+pooling_types = ["traditional", "equal", "adaptive"]
 
 # Training settings
-num_epochs = 3  # Short training per experiment
-save_path_template = "OANet_{}_{}_{}.pth"
+num_epochs = 1  # Short training per experiment
+results_dir = "results/OANet"
+os.makedirs(results_dir, exist_ok=True)
 
 # Store experiment results
 experiment_results = []
+log_file = open(os.path.join(results_dir, "debug_log.txt"), "w")
 
 # Iterate through all combinations of settings
-for fusion, pooling, alpha in itertools.product(fusion_strategies, pooling_types, fusion_weights):
-    print(f"\n=== Running Experiment: Fusion={fusion}, Pooling={pooling}, Fusion α={alpha} ===\n")
+for fusion, alpha, pooling in itertools.product(fusion_strategies, fusion_weights, pooling_types):
+    print(f"\n=== Running Experiment: Fusion={fusion}, Fusion α={alpha}, Pooling={pooling} ===\n")
+    log_file.write(f"\n=== Running Experiment: Fusion={fusion}, Fusion α={alpha}, Pooling={pooling} ===\n")
 
-    # Initialize model with parameters
-    model = OANet(fusion_strategy=fusion, pooling_type=pooling, fusion_alpha=alpha).to(device)
+    # Initialize model
+    model = OANet(fusion_strategy=fusion, fusion_alpha=alpha, pooling_type=pooling).to(device)
 
     # Define loss function & optimizer
     criterion = nn.BCEWithLogitsLoss()  # Binary classification loss
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # TensorBoard SummaryWriter
-    writer = SummaryWriter(log_dir=f"runs/OANet_{fusion}_{pooling}_alpha{alpha}")
+    writer = SummaryWriter(log_dir=f"runs/OANet_{fusion}_alpha{alpha}_pooling{pooling}")
 
     # Training loop
     for epoch in range(num_epochs):
@@ -76,18 +77,49 @@ for fusion, pooling, alpha in itertools.product(fusion_strategies, pooling_types
                 continue
 
             mri_input, xray_input = batch["mri"].to(device), batch["xray"].to(device)
+
+            print(f"Input MRI shape: {mri_input.shape}")
+            print(f"Input X-ray shape: {xray_input.shape}")
+            log_file.write(f"Input MRI shape: {mri_input.shape}\n")
+            log_file.write(f"Input X-ray shape: {xray_input.shape}\n")
+
             labels = torch.randint(0, 2, (mri_input.size(0), 1), dtype=torch.float).to(device)  # Dummy labels
 
             optimizer.zero_grad()
+            print(f"Before model call - MRI input: {mri_input.shape}, X-ray input: {xray_input.shape}")
             outputs = model(mri_input, xray_input)
-            loss = criterion(outputs, labels)
+            print(f"Model output shape: {outputs.shape}")
+
+            print(f"Output shape before FC: {outputs.shape}")
+            log_file.write(f"Output shape before FC: {outputs.shape}\n")
+
+            # Ensure correct shape before fc layer
+            if len(outputs.shape) > 2:
+                outputs = outputs.view(outputs.size(0), -1)  # Flatten feature map
+
+            features = outputs.view(outputs.size(0), -1)  # Reshape features before fc layer
+            print(f"Features shape before FC: {features.shape}")  
+            log_file.write(f"Features shape before FC: {features.shape}\n")
+
+            # Dynamically adjust FC layer input size
+            expected_fc_input_size = model.fc.in_features
+            actual_fc_input_size = features.shape[1]
+
+            if actual_fc_input_size != expected_fc_input_size:
+                print(f"Shape Mismatch! Expected {expected_fc_input_size}, but got {actual_fc_input_size}")
+                log_file.write(f"Shape Mismatch! Expected {expected_fc_input_size}, but got {actual_fc_input_size}\n")
+
+                # Fix the shape mismatch
+                model.fc = nn.Linear(actual_fc_input_size, 1).to(device)
+
+            loss = criterion(features, labels)
             loss.backward()
             optimizer.step()
 
             running_loss += loss.item()
 
             # Convert logits to binary predictions
-            preds = (torch.sigmoid(outputs) > 0.5).cpu().numpy()
+            preds = (torch.sigmoid(features) > 0.5).cpu().numpy()
             labels_np = labels.cpu().numpy()
 
             all_preds.extend(preds)
@@ -99,7 +131,8 @@ for fusion, pooling, alpha in itertools.product(fusion_strategies, pooling_types
         recall = recall_score(all_labels, all_preds, zero_division=0)
         f1 = f1_score(all_labels, all_preds, zero_division=0)
 
-        print(f"Epoch [{epoch+1}/{num_epochs}] | Loss: {running_loss:.4f} | Accuracy: {acc:.4f} | Precision: {precision:.4f} | Recall: {recall:.4f} | F1-score: {f1:.4f}")
+        print(f"Epoch [{epoch+1}/{num_epochs}] | Loss: {running_loss:.4f} | Accuracy: {acc:.4f} | Precision: {precision:.4f} | Recall: {recall:.4f} | F1-score: {f1:.4f} | Pooling: {pooling}")
+        log_file.write(f"Epoch [{epoch+1}/{num_epochs}] | Loss: {running_loss:.4f} | Accuracy: {acc:.4f} | Precision: {precision:.4f} | Recall: {recall:.4f} | F1-score: {f1:.4f} | Pooling: {pooling}\n")
 
         # Log metrics to TensorBoard
         writer.add_scalar("Loss/train", running_loss, epoch)
@@ -109,15 +142,16 @@ for fusion, pooling, alpha in itertools.product(fusion_strategies, pooling_types
         writer.add_scalar("F1-score/train", f1, epoch)
 
     # Save trained model
-    model_save_path = save_path_template.format(fusion, pooling, alpha)
+    model_save_path = os.path.join(results_dir, f"OANet_{fusion}_alpha{alpha}_pooling{pooling}.pth")
     torch.save(model.state_dict(), model_save_path)
     print(f"Experiment completed! Model saved as {model_save_path}")
+    log_file.write(f"Experiment completed! Model saved as {model_save_path}\n")
 
     # Store results
     experiment_results.append({
         "Fusion Strategy": fusion,
-        "Pooling Type": pooling,
         "Fusion Alpha": alpha,
+        "Pooling Type": pooling,
         "Accuracy": acc,
         "Precision": precision,
         "Recall": recall,
@@ -127,11 +161,4 @@ for fusion, pooling, alpha in itertools.product(fusion_strategies, pooling_types
     # Close TensorBoard writer
     writer.close()
 
-# Print final experiment results
-import pandas as pd
-results_df = pd.DataFrame(experiment_results)
-print("\n=== Experiment Summary ===")
-print(results_df)
-
-# Save results to CSV for further analysis
-results_df.to_csv("experiment_results.csv", index=False)
+log_file.close()

@@ -12,7 +12,6 @@ class ResidualBlock3D(nn.Module):
         self.bn2 = nn.BatchNorm3d(out_channels)
         self.relu = nn.ReLU(inplace=True)
         
-        # Handle input channels dynamically
         self.skip = nn.Conv3d(in_channels, out_channels, kernel_size=1, stride=stride) if in_channels != out_channels else nn.Identity()
         
     def forward(self, x):
@@ -55,23 +54,19 @@ class FusionLayer(nn.Module):
         self.fusion_conv = nn.Conv3d(fused_channels, fused_channels, kernel_size=1)
 
     def forward(self, mri_features, xray_features):
-        # Ensure X-ray features match MRI spatial dimensions
         xray_features = F.interpolate(xray_features, size=mri_features.shape[-3:], mode='trilinear', align_corners=False)
         fused_features = self.alpha * mri_features + (1 - self.alpha) * xray_features
         return self.fusion_conv(fused_features)
 
-# the proposed OANet model
 class OANet(nn.Module):
-    """OANet with configurable fusion strategy & pooling type."""
-    def __init__(self, fusion_strategy="late", pooling_type="adaptive", fusion_alpha=0.5):
+    """OANet with configurable fusion strategy and adaptive pooling."""
+    def __init__(self, fusion_strategy="late", fusion_alpha=0.5, pooling_type="traditional"):
         super(OANet, self).__init__()
 
         self.fusion_strategy = fusion_strategy
-
-        # **Handle input channels for early fusion**
+        self.pooling_type = pooling_type
         input_channels = 1 if fusion_strategy == "late" else 2  
 
-        # 3D ResNet for MRI
         self.mri_resnet = nn.Sequential(
             ResidualBlock3D(input_channels, 32, kernel_size=7, stride=2),
             ResidualBlock3D(32, 64, kernel_size=3, stride=1),
@@ -79,7 +74,6 @@ class OANet(nn.Module):
             ResidualBlock3D(128, 256, kernel_size=3, stride=1),
         )
 
-        # 2D ResNet for X-ray
         self.xray_resnet = nn.Sequential(
             ResidualBlock2D(1, 32, kernel_size=7, stride=2),
             ResidualBlock2D(32, 64, kernel_size=3, stride=1),
@@ -87,49 +81,53 @@ class OANet(nn.Module):
             ResidualBlock2D(128, 256, kernel_size=3, stride=1),
         )
 
-        # Adaptive Pooling
-        self.agp_mri = nn.AdaptiveAvgPool3d((1, 1, 1))
-        self.agp_xray = nn.AdaptiveAvgPool2d((1, 1))
-
-        # Fusion Layer
         self.fusion_layer = FusionLayer(fused_channels=256, fusion_alpha=fusion_alpha)
-
-        # Fully connected output layer
         self.fc = nn.Linear(256, 1)
 
+        # Set pooling type
+        if pooling_type == "traditional":
+            self.pooling = nn.AdaptiveAvgPool3d((1, 1, 1))
+        elif pooling_type == "adaptive":
+            self.pooling = nn.AdaptiveMaxPool3d((1, 1, 1))
+        elif pooling_type == "equal":
+            self.pooling = nn.Identity()  # No pooling, keeping all dimensions
+        else:
+            raise ValueError(f"Unknown pooling type: {pooling_type}")
+
     def forward(self, mri, xray):
-        print(f"Input MRI shape: {mri.shape}")  # Debugging
+        print(f"Input MRI shape: {mri.shape}")
         print(f"Input X-ray shape: {xray.shape}")
 
         if self.fusion_strategy == "early":
-            # Early Fusion: Resize & concatenate MRI & X-ray before feature extraction
             xray_resized = F.interpolate(xray.unsqueeze(1), size=mri.shape[-3:], mode='trilinear', align_corners=False)
             fused_input = torch.cat((mri, xray_resized), dim=1)  
-            print(f"Early Fusion - Fused input shape: {fused_input.shape}")  # Debugging
-            features = self.mri_resnet(fused_input)
+            print(f"Early Fusion - Fused input shape: {fused_input.shape}")
+
+            fused_features = self.mri_resnet(fused_input)
 
         else:
-            # Late Fusion: Extract features separately, then fuse
             mri_features = self.mri_resnet(mri)
-            print(f"Late Fusion - MRI features shape: {mri_features.shape}")  # Debugging
+            print(f"Late Fusion - MRI features shape: {mri_features.shape}")
 
             xray_features = self.xray_resnet(xray)
-            print(f"Late Fusion - X-ray features shape: {xray_features.shape}")  # Debugging
+            print(f"Late Fusion - X-ray features shape: {xray_features.shape}")
 
             xray_resized = F.interpolate(xray_features.unsqueeze(2), size=mri_features.shape[-3:], mode='trilinear', align_corners=False)
             fused_features = self.fusion_layer(mri_features, xray_resized)
 
-            features = fused_features.view(fused_features.size(0), -1)
+        pooled_features = self.pooling(fused_features)  
+        pooled_features = pooled_features.view(pooled_features.size(0), -1)  
 
-        return self.fc(features)
+        return self.fc(pooled_features)
 
-# **Test the model before running training**
 if __name__ == "__main__":
     for fusion in ["early", "late"]:
-        model = OANet(fusion_strategy=fusion, fusion_alpha=0.5)
+        for pooling in ["traditional", "adaptive", "equal"]:
+            print(f"Testing OANet with Fusion={fusion}, Pooling={pooling}")
+            model = OANet(fusion_strategy=fusion, fusion_alpha=0.5, pooling_type=pooling)
 
-        mri_input = torch.randn(2, 1, 160, 384, 384)  # (Batch, Channels, Depth, Height, Width)
-        xray_input = torch.randn(2, 1, 384, 384)  # (Batch, Channels, Height, Width)
+            mri_input = torch.randn(2, 1, 160, 384, 384)  
+            xray_input = torch.randn(2, 1, 384, 384)  
 
-        output = model(mri_input, xray_input)
-        print(f"Config: Fusion={fusion} → Output shape: {output.shape}")
+            output = model(mri_input, xray_input)
+            print(f"Config: Fusion={fusion}, Pooling={pooling} → Output shape: {output.shape}")
